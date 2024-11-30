@@ -1,25 +1,38 @@
 import requests
-import os
 import pandas as pd
 
-# Fetching cryptocurrency data using CoinGecko API
-def fetch_crypto_data(crypto_id, days, save_path):
-    print(f"Fetching data for {crypto_id} for the past {days} days...")
-    url = f"https://api.coingecko.com/api/v3/coins/{crypto_id}/market_chart?vs_currency=usd&days={days}"
-    response = requests.get(url)
+def get_binance_historical_data(symbol, interval, start_date, end_date):
+    base_url = "https://api.binance.com/api/v3/klines"
+    params = {
+        "symbol": symbol,
+        "interval": interval,
+        "startTime": int(pd.Timestamp(start_date).timestamp() * 1000),
+        "endTime": int(pd.Timestamp(end_date).timestamp() * 1000),
+        "limit": 1000
+    }
+    
+    response = requests.get(base_url, params=params)
     data = response.json()
 
-    # Extracting prices
-    prices = pd.DataFrame(data['prices'], columns=['timestamp', 'price'])
-    prices['timestamp'] = pd.to_datetime(prices['timestamp'], unit='ms')
+    df = pd.DataFrame(data, columns=[
+        "timestamp", "open", "high", "low", "close", "volume", 
+        "close_time", "quote_asset_volume", "number_of_trades", 
+        "taker_buy_base_asset_volume", "taker_buy_quote_asset_volume", "ignore"
+    ])
 
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
-    prices.to_csv(f"{save_path}/{crypto_id}.csv", index=False)
-    print(f"Data saved for {crypto_id} at {save_path}/{crypto_id}.csv")
+    df = df[["timestamp", "open", "high", "low", "close", "volume"]]
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit="ms")
+    df.rename(columns={"timestamp": "Date"}, inplace=True)
+    df.set_index("Date", inplace=True)
+    df = df.astype(float)
 
-# Usage (example)
+    return df
+
 if __name__ == "__main__":
-    cryptos = ['bitcoin', 'ethereum', 'dogecoin']  # List of crypto IDs
-    for crypto in cryptos:
-        fetch_crypto_data(crypto, 365, 'data/crypto')
+    symbol = "BTCUSDT"
+    interval = "1d"
+    start_date = "2023-01-01"
+    end_date = "2024-10-01"
+    data = get_binance_historical_data(symbol, interval, start_date, end_date)
+    data.to_csv(f"data/crypto/{symbol}.csv")
+    print(f"Data saved for {symbol}!")
