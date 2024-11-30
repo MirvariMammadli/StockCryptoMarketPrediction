@@ -36,3 +36,15 @@ crypto_data.fillna(method="ffill", inplace=True)
 print("\nMissing values after handling:")
 print(stock_data.isnull().sum())
 print(crypto_data.isnull().sum())
+
+# Boxplot for stock prices
+plt.figure(figsize=(10, 5))
+sns.boxplot(stock_data["Close"])
+plt.title("Boxplot for AAPL Closing Prices")
+plt.show()
+
+# Boxplot for cryptocurrency prices
+plt.figure(figsize=(10, 5))
+sns.boxplot(crypto_data["price"], color="orange")
+plt.title("Boxplot for BTC Closing Prices")
+plt.show()
