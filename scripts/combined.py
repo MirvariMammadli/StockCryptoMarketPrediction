@@ -1,3 +1,4 @@
+# Initializing Libraries
 import os
 import gym
 import praw
@@ -14,7 +15,7 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 
 from pgmpy.models import BayesianNetwork
-from pgmpy.inference import VariableElimination
+from pgmpy.inference import BeliefPropagation
 from pgmpy.estimators import MaximumLikelihoodEstimator
 
 from sklearn.metrics import mean_squared_error
@@ -29,7 +30,9 @@ nltk.download("punkt")
 nltk.download("stopwords")
 nltk.download("vader_lexicon")
 
+# Creating class
 class FinancialDataPipeline:
+    # Define initial variables
     def __init__(self, config):
         self.config = config
         self.reddit = praw.Reddit(
@@ -41,6 +44,39 @@ class FinancialDataPipeline:
         self.scaler = MinMaxScaler()
         logging.basicConfig(level=logging.INFO)
 
+    def fetch_reddit_headlines(self, subreddit_name, limit, save_path):
+        print(f"Fetching {limit} headlines from r/{subreddit_name}...")
+        subreddit = self.reddit.subreddit(subreddit_name)
+        headlines = []
+        for post in subreddit.hot(limit=limit):
+            headlines.append({'title': post.title, 'score': post.score})
+
+        df = pd.DataFrame(headlines)
+        if not os.path.exists(save_path):
+            os.makedirs(save_path)
+        df.to_csv(f"{save_path}/{subreddit_name}_headlines.csv", index=False)
+        print(f"Headlines saved at {save_path}/{subreddit_name}_headlines.csv")
+
+    @staticmethod
+    def preprocess_headlines(headline):
+        tokens = word_tokenize(headline)
+        tokens = [word.lower() for word in tokens if word.isalnum()]
+        tokens = [word for word in tokens if word not in stopwords.words("english")]
+        return " ".join(tokens)
+
+    def analyze_sentiment(self, data_path, save_path):
+        reddit_data = pd.read_csv(data_path)
+        reddit_data["processed_title"] = reddit_data["title"].apply(self.preprocess_headlines)
+        
+        # Compute sentiment scores
+        reddit_data["sentiment_score"] = reddit_data["processed_title"].apply(
+            lambda x: self.sia.polarity_scores(x)["compound"]
+        )
+        
+        reddit_data.to_csv(save_path, index=False)
+        print("Processed sentiment data saved at:", save_path)
+        
+    # Fetch crypto data from Binance using requests
     def fetch_crypto_data(self, symbol, interval, start_date, end_date, save_path):
         url = "https://api.binance.com/api/v3/klines"
         params = {
@@ -103,6 +139,7 @@ class FinancialDataPipeline:
         X, y = np.array(X), np.array(y)
         X = np.reshape(X, (X.shape[0], X.shape[1], 1))
 
+        # Splitting data into test and train parts 
         split = int(len(X) * 0.8)
         X_train, X_test = X[:split], X[split:]
         y_train, y_test = y[:split], y[split:]
@@ -133,31 +170,43 @@ class FinancialDataPipeline:
 
     def build_bayesian_network(self, data):
         # Discretize continuous data into bins
-        discretizer = KBinsDiscretizer(n_bins=5, encode="ordinal", strategy="uniform", subsample=None)
+        discretizer = KBinsDiscretizer(n_bins=5, encode="ordinal", strategy="uniform")
         data_discrete = data.copy()
-        
-        # Fill NaN values and discretize
+
+        # Handle missing values
         data_discrete.fillna(method="ffill", inplace=True)
-        for col in ["rsi_14", "close", "macd"]:
+        data_discrete.fillna(method="bfill", inplace=True)
+        data_discrete.fillna(0, inplace=True)  # Final fallback for NaNs
+
+        # Validate columns before discretization and discretize
+        columns_to_discretize = ["rsi_14", "close", "macd"]
+        for col in columns_to_discretize:
+            if data_discrete[col].isnull().any():
+                raise ValueError(f"NaN values found in column {col} after preprocessing.")
             data_discrete[col] = discretizer.fit_transform(data_discrete[[col]]).astype(int)
 
         # Define the Bayesian Network structure
         model = BayesianNetwork([("rsi_14", "close"), ("macd", "close")])
-        model.fit(data_discrete, estimator=MaximumLikelihoodEstimator, state_names=True)
+        model.fit(data_discrete, estimator=MaximumLikelihoodEstimator)
 
-        # Normalize CPDs if necessary
+        # Normalize and validate CPDs
         for cpd in model.get_cpds():
-            if not np.isclose(cpd.values.sum(axis=0), 1).all():
-                logging.warning(f"Invalid CPD for {cpd.variable}, normalizing...")
-                cpd.values = cpd.values / cpd.values.sum(axis=0)
+            cpd.normalize()  # Ensures sum of probabilities equals 1
+            if not np.isclose(cpd.values.sum(axis=0), 1, atol=0.01).all():
+                logging.error(f"CPD for {cpd.variable} still not normalized properly.")
+                return None  # or handle differently based on your requirements
 
-        # Perform inference
-        infer = VariableElimination(model)
-        query_result = infer.query(variables=["close"], evidence={"rsi_14": 2})
+        # Perform inference using Belief Propagation
+        inference = BeliefPropagation(model)
+        try:
+            query_result = inference.query(variables=["close"], evidence={"rsi_14": 2}, show_progress=False)
+        except Exception as e:
+            logging.error(f"Error during inference: {e}")
+            return None
         logging.info(f"Bayesian Network Query Result: {query_result}")
         return query_result
 
-
+    
     def reinforcement_learning(self, env_name="CartPole-v1", episodes=100):
         env = gym.make(env_name)
         rewards = []
@@ -268,6 +317,8 @@ if __name__ == "__main__":
         "reddit_user_agent": "mmmirvari",
     }
     pipeline = FinancialDataPipeline(config)
+    pipeline.fetch_reddit_headlines("stockmarket", 100, "data/sentiment/raw")
+    pipeline.analyze_sentiment("data/sentiment/raw/stockmarket_headlines.csv", "data/sentiment/processed/stockmarket_sentiment.csv")
 
     pipeline.fetch_stock_data("AAPL", "2023-01-01", "2024-01-01", "data/stocks/AAPL.csv")
     stock_data = pd.read_csv("data/stocks/AAPL.csv", index_col="Date", parse_dates=True)
