@@ -4,9 +4,9 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 from nltk.sentiment import SentimentIntensityAnalyzer
 
-nltk.download("punkt")
-nltk.download("stopwords")
-nltk.download("vader_lexicon")
+nltk.download('punkt', quiet=True)
+nltk.download('stopwords', quiet=True)
+nltk.download('vader_lexicon', quiet=True)
 
 # Load Reddit sentiment data
 reddit_data = pd.read_csv("data/sentiment/raw/stockmarket_headlines.csv")

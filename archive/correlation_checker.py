@@ -29,8 +29,8 @@ print("\nMissing values in crypto data:")
 print(crypto_data.isnull().sum())
 
 # Filling the missing values with forward-fill
-stock_data.fillna(method="ffill", inplace=True)
-crypto_data.fillna(method="ffill", inplace=True)
+stock_data.ffill(inplace=True)
+crypto_data.ffill(inplace=True)
 
 
 print("\nMissing values after handling:")
